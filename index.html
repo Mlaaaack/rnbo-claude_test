@@ -6,24 +6,26 @@
 <title>Slider Chords</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
-<!-- Pour changer l'apparence : remplacer ce lien par un autre fichier CSS (ex. style-dark.css) -->
+<link href="https://fonts.googleapis.com/css2?family=Permanent+Marker&family=Kalam:wght@400;700&family=Special+Elite&display=swap" rel="stylesheet">
+<!-- Pour changer l'apparence : remplacer ce lien par un autre fichier CSS -->
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
 <div class="rack">
   <div class="module">
+    <svg class="module-frame" id="moduleFrame"></svg>
+
     <div class="rail">
       <div class="brand">
         <span class="kicker">C74 · RNBO EXPORT</span>
         <h1 id="patchTitle">Slider Chords</h1>
       </div>
-      <div class="screws"><div class="screw"></div><div class="screw"></div></div>
+      <div class="stamp">fait main</div>
     </div>
 
     <div class="scope">
-      <div class="grid-overlay"></div>
+      <svg class="scope-frame" id="scopeFrame"></svg>
       <canvas id="scopeCanvas"></canvas>
     </div>
 
@@ -31,7 +33,7 @@
 
     <div class="trigger-row">
       <button class="trigger-pad" id="triggerPad" type="button">
-        <span class="trigger-dot"></span>
+        <svg id="triggerFrame"></svg>
         <span>Déclencher les accords</span>
       </button>
     </div>
@@ -43,10 +45,7 @@
       </div>
       <div class="master">
         <span class="label">Volume</span>
-        <div class="knob" id="masterKnob">
-          <div class="knob-body"></div>
-          <div class="pointer"></div>
-        </div>
+        <div class="knob" id="masterKnob"></div>
       </div>
     </div>
 
@@ -55,6 +54,7 @@
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/roughjs@4.6.6/bundled/rough.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

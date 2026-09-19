@@ -28,18 +28,32 @@ français — sinon le nom brut du paramètre RNBO s'affiche.
 
 ## Changer l'interface (GUI)
 
-Tout le visuel est dans `style.css`. Pour essayer un autre thème sans
-perdre l'actuel :
+Thème actuel : "gravure lino" — papier crème, encre noire, une seule
+couleur d'accent (bichromie façon atelier), formes dessinées à la main
+via [rough.js](https://roughjs.com) (chargé en CDN dans `index.html`,
+pas d'installation nécessaire).
 
-1. Duplique `style.css` en `style-autre-nom.css`
-2. Modifie les couleurs (variables en haut du fichier `:root { ... }`),
-   les rayons, les polices, etc.
-3. Change la ligne `<link rel="stylesheet" href="style.css">` dans
-   `index.html` pour pointer vers ton nouveau fichier
+- **Couleurs** : tout est dans les variables en haut de `style.css`
+  (`--paper`, `--ink`, `--spot`, etc.). `app.js` lit ces mêmes couleurs
+  au moment de dessiner (fonction `palette()`) — donc changer les
+  variables CSS suffit à changer aussi la couleur des knobs.
+- **Caractère "dessiné à la main"** : réglable via les paramètres
+  `roughness` et `bowing` passés à rough.js dans `app.js` (plus la
+  valeur est haute, plus le trait est irrégulier). Chaque commande a
+  une "graine" fixe (`seedKey`) pour garder un tracé cohérent d'un
+  rafraîchissement à l'autre plutôt que de trembler à chaque frame.
+- **Polices** : Permanent Marker (titre), Kalam (labels), Special
+  Elite (petit texte) — à changer dans le `<link>` Google Fonts et les
+  `font-family` de `style.css`.
+- **Repartir sur un tout autre style** (ex. métal/graphite comme la
+  première version) : dupliquer `style.css`, remplacer les fonctions
+  de dessin dans `app.js` par du CSS pur si tu ne veux plus de
+  rough.js, ou simplement changer les options passées à rough.js pour
+  un rendu plus net (`roughness: 0.3`) ou plus brut (`roughness: 3`).
 
-`app.js` ne dépend d'aucune valeur de style — uniquement des noms de
-classes (`.knob`, `.toggle`, `.ctrl`, etc.), donc tu peux repenser
-entièrement l'apparence sans casser le fonctionnement.
+`app.js` ne dépend d'aucune valeur de style codée en dur ailleurs que
+dans ces variables — tu peux repenser l'apparence sans casser le
+fonctionnement.
 
 ## Déploiement sur GitHub Pages
 

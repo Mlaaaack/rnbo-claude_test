@@ -1,6 +1,7 @@
 // ==========================================================================
-// Slider Chords — logique RNBO / Web Audio
-// Ne dépend d'aucun style particulier : uniquement des id/classes du DOM.
+// Slider Chords — logique RNBO / Web Audio + rendu "gravure lino"
+// Les formes des commandes sont dessinées à la main (au sens : par du
+// code, avec de l'aléatoire contrôlé) via rough.js plutôt qu'en CSS pur.
 // Pour changer de patch : remplacer patch/patch_export.json (et
 // patch/dependencies.json si besoin) — rien ici à modifier.
 // ==========================================================================
@@ -11,10 +12,7 @@
   const PATCH_URL = "patch/patch_export.json";
   const DEPENDENCIES_URL = "patch/dependencies.json";
 
-  // Libellés français pour les paramètres RNBO connus. Tout paramètre
-  // non listé ici s'affiche simplement avec son nom brut — donc un
-  // nouvel export avec des paramètres différents fonctionne sans y
-  // toucher.
+  // Libellés français pour les paramètres RNBO connus.
   const LABELS = {
     bpm: "Tempo",
     metro: "Métronome",
@@ -22,6 +20,25 @@
     beat_slide: "Glissando rythmique",
     slide: "Glissando"
   };
+
+  // ---- couleurs pour rough.js (doivent rester cohérentes avec style.css) ----
+  function cssVar(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+  function palette() {
+    return {
+      paper: cssVar("--paper") || "#f1e9d2",
+      paper2: cssVar("--paper-2") || "#e8dfc2",
+      ink: cssVar("--ink") || "#211a12",
+      spot: cssVar("--spot") || "#a83a2c"
+    };
+  }
+
+  function seedFromString(s) {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+    return (Math.abs(h) % 9973) + 1;
+  }
 
   // ---- storage helpers (confort par visiteur uniquement) ----
   function loadSaved() {
@@ -55,10 +72,261 @@
 
   const powerBtn = document.getElementById("powerBtn");
   const powerLabel = document.getElementById("powerLabel");
+  const powerLed = document.getElementById("powerLed");
   const controlsEl = document.getElementById("controls");
   const triggerPad = document.getElementById("triggerPad");
+  const triggerFrame = document.getElementById("triggerFrame");
   const canvas = document.getElementById("scopeCanvas");
   const ctx2d = canvas.getContext("2d");
+  const moduleFrame = document.getElementById("moduleFrame");
+  const scopeFrame = document.getElementById("scopeFrame");
+
+  // ==== dessin "gravure lino" (rough.js) ====================================
+
+  function clearSvg(svg) { while (svg.firstChild) svg.removeChild(svg.firstChild); }
+
+  // Cadre hachuré, taille fluide : utilisé pour le contour du module et
+  // celui de l'oscilloscope. Redessiné au redimensionnement.
+  function drawFrame(svgEl, seedKey) {
+    const parent = svgEl.parentElement;
+    const w = parent.clientWidth, h = parent.clientHeight;
+    if (!w || !h) return;
+    svgEl.setAttribute("width", w);
+    svgEl.setAttribute("height", h);
+    svgEl.setAttribute("viewBox", "0 0 " + w + " " + h);
+    clearSvg(svgEl);
+    const rc = rough.svg(svgEl);
+    const pal = palette();
+    const node = rc.rectangle(3, 3, w - 6, h - 6, {
+      roughness: 1.4, bowing: 1.2,
+      stroke: pal.ink, strokeWidth: 2.4,
+      fill: "none",
+      seed: seedFromString(seedKey)
+    });
+    svgEl.appendChild(node);
+  }
+
+  function drawFramesNow() {
+    drawFrame(moduleFrame, "module-frame");
+    drawFrame(scopeFrame, "scope-frame");
+  }
+  let resizeTimer = null;
+  window.addEventListener("resize", function () {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(drawFramesNow, 120);
+  });
+
+  // Bouton de déclenchement : rectangle tamponné, hachures pleines.
+  function drawTriggerPad() {
+    const w = triggerPad.clientWidth, h = triggerPad.clientHeight;
+    if (!w || !h) return;
+    triggerFrame.setAttribute("width", w);
+    triggerFrame.setAttribute("height", h);
+    triggerFrame.setAttribute("viewBox", "0 0 " + w + " " + h);
+    clearSvg(triggerFrame);
+    const rc = rough.svg(triggerFrame);
+    const pal = palette();
+    const node = rc.rectangle(4, 4, w - 8, h - 8, {
+      roughness: 2.2, bowing: 2.6,
+      fill: pal.spot, fillStyle: "solid",
+      stroke: pal.ink, strokeWidth: 2.4,
+      seed: seedFromString("trigger-pad")
+    });
+    triggerFrame.appendChild(node);
+  }
+
+  // Voyant d'alimentation : cercle simple, "étincelles" quand actif.
+  function drawPowerLed(on) {
+    const size = 22;
+    let svgEl = powerLed.querySelector("svg");
+    if (!svgEl) {
+      svgEl = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      powerLed.appendChild(svgEl);
+    }
+    svgEl.setAttribute("width", size);
+    svgEl.setAttribute("height", size);
+    svgEl.setAttribute("viewBox", "0 0 " + size + " " + size);
+    clearSvg(svgEl);
+    const rc = rough.svg(svgEl);
+    const pal = palette();
+    const seed = seedFromString("power-led");
+    const circle = rc.circle(11, 11, 14, {
+      roughness: 1.6, bowing: 1.4,
+      fill: on ? pal.spot : "none",
+      fillStyle: on ? "hachure" : "solid",
+      hachureGap: 2,
+      stroke: pal.ink, strokeWidth: 2,
+      seed: seed
+    });
+    svgEl.appendChild(circle);
+    if (on) {
+      // petits traits façon étincelle autour du voyant
+      const rays = [
+        [11, -1, 11, 3], [11, 19, 11, 23],
+        [-1, 11, 3, 11], [19, 11, 23, 11]
+      ];
+      rays.forEach(function (r, i) {
+        const line = rc.line(r[0], r[1], r[2], r[3], {
+          roughness: 1.8, stroke: pal.spot, strokeWidth: 1.6, seed: seed + i + 1
+        });
+        svgEl.appendChild(line);
+      });
+    }
+  }
+
+  // Interrupteur (paramètre à 2 valeurs) : piste en forme de pilule +
+  // curseur rond, tous deux hachurés à la main.
+  function createRoughToggle(container, opts) {
+    const w = 62, h = 34;
+    const svgEl = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svgEl.setAttribute("width", w);
+    svgEl.setAttribute("height", h);
+    svgEl.setAttribute("viewBox", "0 0 " + w + " " + h);
+    container.appendChild(svgEl);
+
+    const seed = seedFromString(opts.seedKey);
+    let state = !!opts.value;
+
+    function render() {
+      clearSvg(svgEl);
+      const rc = rough.svg(svgEl);
+      const pal = palette();
+      const track = rc.path(
+        "M17,4 H45 A13,13 0 0 1 45,30 H17 A13,13 0 0 1 17,4 Z",
+        {
+          roughness: 1.5, bowing: 1.4,
+          fill: state ? pal.spot + "22" : pal.paper2,
+          fillStyle: "solid",
+          stroke: pal.ink, strokeWidth: 2,
+          seed: seed
+        }
+      );
+      svgEl.appendChild(track);
+      const cx = state ? 45 : 17;
+      const dot = rc.circle(cx, 17, 20, {
+        roughness: 1.6, bowing: 1.4,
+        fill: state ? pal.spot : pal.ink,
+        fillStyle: "hachure", hachureGap: 2.2,
+        stroke: pal.ink, strokeWidth: 2,
+        seed: seed + 1
+      });
+      svgEl.appendChild(dot);
+    }
+    render();
+
+    container.style.cursor = "pointer";
+    container.addEventListener("click", function () {
+      state = !state;
+      render();
+      if (opts.onChange) opts.onChange(state);
+    });
+
+    return { setState: function (v) { state = !!v; render(); } };
+  }
+
+  // Bouton rotatif : cercle hachuré fixe + aiguille redessinée à
+  // chaque changement de valeur (même "graine" aléatoire => même
+  // caractère de trait à chaque redessin).
+  function createRoughKnob(container, opts) {
+    const { min, max, value, step, onChange, seedKey } = opts;
+    const size = container.clientWidth || 64;
+    const cx = size / 2, cy = size / 2;
+    const bodyR = size * 0.42;
+    const pointerOuterR = size * 0.34;
+    const pointerInnerR = size * 0.1;
+
+    const svgEl = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svgEl.setAttribute("viewBox", "0 0 " + size + " " + size);
+    container.appendChild(svgEl);
+
+    const bodyGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    const pointerGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    svgEl.appendChild(bodyGroup);
+    svgEl.appendChild(pointerGroup);
+
+    const seed = seedFromString(seedKey);
+    let val = value;
+
+    function drawBody() {
+      clearSvg(bodyGroup);
+      const rc = rough.svg(svgEl);
+      const pal = palette();
+      const circle = rc.circle(cx, cy, bodyR * 2, {
+        roughness: 1.7, bowing: 1.3,
+        fill: pal.paper2, fillStyle: "hachure",
+        hachureGap: 3, hachureAngle: seed % 180,
+        stroke: pal.ink, strokeWidth: 2.2,
+        seed: seed
+      });
+      bodyGroup.appendChild(circle);
+    }
+
+    function normalize(v) { return (v - min) / (max - min || 1); }
+
+    function drawPointer() {
+      clearSvg(pointerGroup);
+      const rc = rough.svg(svgEl);
+      const pal = palette();
+      const n = Math.min(1, Math.max(0, normalize(val)));
+      const angle = (-135 + n * 270) * Math.PI / 180;
+      const x1 = cx + pointerInnerR * Math.sin(angle);
+      const y1 = cy - pointerInnerR * Math.cos(angle);
+      const x2 = cx + pointerOuterR * Math.sin(angle);
+      const y2 = cy - pointerOuterR * Math.cos(angle);
+      const line = rc.line(x1, y1, x2, y2, {
+        roughness: 1.5, stroke: pal.spot, strokeWidth: 3, seed: seed + 1
+      });
+      pointerGroup.appendChild(line);
+      const dot = rc.circle(cx, cy, 6, {
+        roughness: 1.4, fill: pal.ink, fillStyle: "solid",
+        stroke: pal.ink, strokeWidth: 1, seed: seed + 2
+      });
+      pointerGroup.appendChild(dot);
+    }
+
+    function setValue(v, notify) {
+      v = Math.min(max, Math.max(min, v));
+      if (step) v = Math.round(v / step) * step;
+      val = v;
+      drawPointer();
+      if (notify !== false && onChange) onChange(val);
+    }
+
+    drawBody();
+    drawPointer();
+
+    let dragging = false, startY = 0, startVal = 0;
+    const sensitivity = (max - min) / 140;
+
+    container.addEventListener("pointerdown", function (e) {
+      dragging = true;
+      startY = e.clientY;
+      startVal = val;
+      container.setPointerCapture(e.pointerId);
+    });
+    container.addEventListener("pointermove", function (e) {
+      if (!dragging) return;
+      const dy = startY - e.clientY;
+      setValue(startVal + dy * sensitivity);
+    });
+    function pointerUp(e) {
+      dragging = false;
+      try { container.releasePointerCapture(e.pointerId); } catch (err) {}
+    }
+    container.addEventListener("pointerup", pointerUp);
+    container.addEventListener("pointercancel", pointerUp);
+    container.addEventListener("dblclick", function () {
+      setValue(opts.defaultValue !== undefined ? opts.defaultValue : min);
+    });
+    container.addEventListener("wheel", function (e) {
+      e.preventDefault();
+      setValue(val + (e.deltaY < 0 ? 1 : -1) * (max - min) / 50);
+    }, { passive: false });
+
+    return { setValue: function (v) { setValue(v, false); }, getValue: function () { return val; } };
+  }
+
+  // ==== oscilloscope (papier + encre spot) ==================================
 
   function resizeCanvas() {
     const rect = canvas.parentElement.getBoundingClientRect();
@@ -67,17 +335,19 @@
     canvas.height = rect.height * dpr;
     ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
-  window.addEventListener("resize", resizeCanvas);
 
   function drawIdle() {
     const w = canvas.clientWidth, h = canvas.clientHeight;
+    const pal = palette();
     ctx2d.clearRect(0, 0, w, h);
-    ctx2d.strokeStyle = "rgba(95,217,196,0.25)";
+    ctx2d.strokeStyle = pal.ink;
+    ctx2d.globalAlpha = 0.35;
     ctx2d.lineWidth = 1.5;
     ctx2d.beginPath();
     ctx2d.moveTo(0, h / 2);
     ctx2d.lineTo(w, h / 2);
     ctx2d.stroke();
+    ctx2d.globalAlpha = 1;
   }
 
   function drawScope() {
@@ -85,13 +355,12 @@
     const bufferLength = analyser.fftSize;
     const dataArray = new Uint8Array(bufferLength);
     analyser.getByteTimeDomainData(dataArray);
+    const pal = palette();
 
     const w = canvas.clientWidth, h = canvas.clientHeight;
     ctx2d.clearRect(0, 0, w, h);
-    ctx2d.lineWidth = 1.8;
-    ctx2d.strokeStyle = "#5fd9c4";
-    ctx2d.shadowColor = "rgba(95,217,196,0.6)";
-    ctx2d.shadowBlur = 6;
+    ctx2d.lineWidth = 2;
+    ctx2d.strokeStyle = pal.spot;
     ctx2d.beginPath();
     const slice = w / bufferLength;
     let x = 0;
@@ -102,69 +371,15 @@
       x += slice;
     }
     ctx2d.stroke();
-    ctx2d.shadowBlur = 0;
     rafId = requestAnimationFrame(drawScope);
-  }
-
-  // ---- generic rotary knob ----
-  function createKnob(el, opts) {
-    const { min, max, value, step, onChange } = opts;
-    const pointer = el.querySelector(".pointer");
-    let val = value;
-
-    function normalize(v) { return (v - min) / (max - min || 1); }
-    function render() {
-      const n = Math.min(1, Math.max(0, normalize(val)));
-      const angle = -135 + n * 270;
-      pointer.style.transform = "translate(-50%,0) rotate(" + angle + "deg)";
-    }
-    function setValue(v, notify) {
-      v = Math.min(max, Math.max(min, v));
-      if (step) v = Math.round(v / step) * step;
-      val = v;
-      render();
-      if (notify !== false && onChange) onChange(val);
-    }
-
-    let dragging = false, startY = 0, startVal = 0;
-    const sensitivity = (max - min) / 140;
-
-    function pointerDown(e) {
-      dragging = true;
-      startY = e.clientY;
-      startVal = val;
-      el.setPointerCapture(e.pointerId);
-    }
-    function pointerMove(e) {
-      if (!dragging) return;
-      const dy = startY - e.clientY;
-      setValue(startVal + dy * sensitivity);
-    }
-    function pointerUp(e) {
-      dragging = false;
-      try { el.releasePointerCapture(e.pointerId); } catch (err) {}
-    }
-
-    el.addEventListener("pointerdown", pointerDown);
-    el.addEventListener("pointermove", pointerMove);
-    el.addEventListener("pointerup", pointerUp);
-    el.addEventListener("pointercancel", pointerUp);
-    el.addEventListener("dblclick", function () {
-      setValue(opts.defaultValue !== undefined ? opts.defaultValue : min);
-    });
-    el.addEventListener("wheel", function (e) {
-      e.preventDefault();
-      setValue(val + (e.deltaY < 0 ? 1 : -1) * (max - min) / 50);
-    }, { passive: false });
-
-    render();
-    return { setValue: function (v) { setValue(v, false); }, getValue: function () { return val; } };
   }
 
   function fmt(n) {
     if (Math.abs(n) >= 100) return Math.round(n).toString();
     return (Math.round(n * 100) / 100).toString();
   }
+
+  // ==== construction des commandes à partir des paramètres RNBO ============
 
   function buildControls() {
     controlsEl.innerHTML = "";
@@ -188,10 +403,7 @@
         const t = document.createElement("div");
         t.className = "toggle-wrap";
         const sw = document.createElement("div");
-        sw.className = "toggle" + (initial >= 1 ? " on" : "");
-        const dot = document.createElement("div");
-        dot.className = "knob-dot";
-        sw.appendChild(dot);
+        sw.className = "toggle";
         t.appendChild(sw);
         wrap.appendChild(t);
 
@@ -200,17 +412,18 @@
         valueEl.textContent = initial >= 1 ? "On" : "Off";
         wrap.appendChild(valueEl);
 
-        sw.addEventListener("click", function () {
-          const on = !sw.classList.contains("on");
-          sw.classList.toggle("on", on);
-          valueEl.textContent = on ? "On" : "Off";
-          setParam(p.name, on ? 1 : 0);
-          saveParam(p.name, on ? 1 : 0);
+        createRoughToggle(sw, {
+          value: initial >= 1,
+          seedKey: "toggle-" + p.name,
+          onChange: function (on) {
+            valueEl.textContent = on ? "On" : "Off";
+            setParam(p.name, on ? 1 : 0);
+            saveParam(p.name, on ? 1 : 0);
+          }
         });
       } else {
         const knobEl = document.createElement("div");
         knobEl.className = "knob";
-        knobEl.innerHTML = '<div class="knob-body"></div><div class="pointer"></div>';
         wrap.appendChild(knobEl);
 
         const valueEl = document.createElement("div");
@@ -218,9 +431,10 @@
         valueEl.textContent = fmt(initial);
         wrap.appendChild(valueEl);
 
-        createKnob(knobEl, {
+        createRoughKnob(knobEl, {
           min: p.minimum, max: p.maximum, value: initial,
           defaultValue: p.initialValue,
+          seedKey: "knob-" + p.name,
           step: p.steps > 0 ? (p.maximum - p.minimum) / p.steps : (p.maximum - p.minimum) / 1000,
           onChange: function (v) {
             valueEl.textContent = fmt(v);
@@ -253,11 +467,9 @@
     // Un message sans payload (undefined) = un "bang" pour @rnbo/js.
     // Un tableau vide [] enverrait une liste vide, pas un bang.
     device.scheduleEvent(new RNBO.MessageEvent(RNBO.TimeNow, "in1"));
-    triggerPad.classList.add("flash");
-    setTimeout(function () { triggerPad.classList.remove("flash"); }, 120);
   }
 
-  // ---- master volume knob ----
+  // ---- volume principal ----
   const masterKnobEl = document.getElementById("masterKnob");
   const savedMaster = (function () {
     try {
@@ -265,15 +477,8 @@
       return v !== null ? parseFloat(v) : 0.8;
     } catch (e) { return 0.8; }
   })();
-  createKnob(masterKnobEl, {
-    min: 0, max: 1, value: savedMaster, defaultValue: 0.8, step: 0.01,
-    onChange: function (v) {
-      if (masterGain) masterGain.gain.setTargetAtTime(v, context.currentTime, 0.01);
-      try { localStorage.setItem("slider-chords-master", String(v)); } catch (e) {}
-    }
-  });
 
-  // ---- load the RNBO runtime that matches the patch's export version ----
+  // ---- chargement du runtime RNBO correspondant à la version du patch ----
   function loadRNBOScript(version) {
     return new Promise(function (resolve, reject) {
       if (window.RNBO && window.RNBO.version === version) return resolve();
@@ -331,8 +536,8 @@
     await ensureAudio();
     await context.resume();
     running = true;
-    powerBtn.classList.add("running");
     powerLabel.textContent = "Actif";
+    drawPowerLed(true);
     cancelAnimationFrame(rafId);
     drawScope();
   }
@@ -340,8 +545,8 @@
   async function stop() {
     await context.suspend();
     running = false;
-    powerBtn.classList.remove("running");
     powerLabel.textContent = "Démarrer";
+    drawPowerLed(false);
     cancelAnimationFrame(rafId);
     drawIdle();
   }
@@ -369,6 +574,17 @@
   (async function init() {
     resizeCanvas();
     drawIdle();
+    drawFramesNow();
+    drawTriggerPad();
+    drawPowerLed(false);
+    createRoughKnob(masterKnobEl, {
+      min: 0, max: 1, value: savedMaster, defaultValue: 0.8, step: 0.01,
+      seedKey: "master-volume",
+      onChange: function (v) {
+        if (masterGain) masterGain.gain.setTargetAtTime(v, context.currentTime, 0.01);
+        try { localStorage.setItem("slider-chords-master", String(v)); } catch (e) {}
+      }
+    });
     try {
       await loadPatchFiles();
       buildControls();
